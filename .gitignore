@@ -1,0 +1,41 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ---------------------------------------------------------------------------------------
+# Back-end (Python/Flask)
+# ---------------------------------------------------------------------------------------
+# Python virtual environment
+venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temporary files
+*.sqlite
+*.db
+.env
+
+# ---------------------------------------------------------------------------------------
+# Front-end (React)
+# ---------------------------------------------------------------------------------------
+# Node.js dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Build output folder
+/build
+
+# Temporary files
+.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

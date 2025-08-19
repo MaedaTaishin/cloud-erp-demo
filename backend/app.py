@@ -5,39 +5,34 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
-import click # Import click for CLI commands
+import click
+from flask_cors import CORS # NEW: Import CORS
 
 print("--- Starting app.py execution ---")
 
 # --- Configuration ---
-# Determine the base directory of the project
 basedir = os.path.abspath(os.path.dirname(__file__))
 print(f"Basedir: {basedir}")
 
 app = Flask(__name__)
+CORS(app) # NEW: Enable CORS for your Flask app. This allows requests from your frontend.
 
 # Configure the database
-# Using SQLite for local development simplicity.
-# The database file will be created in the 'database' directory.
 db_dir = os.path.join(basedir, '../database')
 db_path = os.path.join(db_dir, 'erp_demo.db')
 
-# Ensure the database directory exists before configuring SQLAlchemy
 os.makedirs(db_dir, exist_ok=True)
 print(f"Database directory ensured at: {db_dir}")
 print(f"Database path configured to: {db_path}")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Suppress a warning
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 print("SQLAlchemy DB object initialized.")
 
 # --- Database Model ---
 class Product(db.Model):
-    """
-    Represents a product in the ERP system.
-    """
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -50,9 +45,6 @@ class Product(db.Model):
         return f'<Product {self.name}>'
 
     def to_dict(self):
-        """
-        Converts a Product object to a dictionary for JSON serialization.
-        """
         return {
             'id': self.id,
             'name': self.name,
@@ -66,36 +58,24 @@ class Product(db.Model):
 # --- CLI Command for Database Initialization ---
 @app.cli.command('init-db')
 def init_db_command():
-    """Clear existing data and create new tables."""
     print("Attempting to create database tables via CLI command...")
     try:
         with app.app_context():
-            # Ensure the database directory exists before creating tables
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
             db.create_all()
-        click.echo('Initialized the database.') # Use click.echo for CLI output
+        click.echo('Initialized the database.')
         print("Database tables created successfully or already exist.")
     except Exception as e:
         click.echo(f"Error initializing database: {e}")
         print(f"Error initializing database: {e}")
 
-
 # --- API Endpoints ---
-
 @app.route('/')
 def home():
-    """
-    Basic home route to confirm the server is running.
-    """
     return jsonify({"message": "Welcome to the Cloud ERP Demo Backend!"})
 
 @app.route('/products', methods=['POST'])
 def create_product():
-    """
-    Creates a new product.
-    Expects JSON input with 'name', 'price', and 'quantity'.
-    'description' is optional.
-    """
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON"}), 400
@@ -133,17 +113,11 @@ def create_product():
 
 @app.route('/products', methods=['GET'])
 def get_products():
-    """
-    Retrieves all products.
-    """
     products = Product.query.all()
     return jsonify([product.to_dict() for product in products]), 200
 
 @app.route('/products/<int:product_id>', methods=['GET'])
 def get_product(product_id):
-    """
-    Retrieves a single product by its ID.
-    """
     product = Product.query.get(product_id)
     if product is None:
         return jsonify({"error": "Product not found"}), 404
@@ -151,10 +125,6 @@ def get_product(product_id):
 
 @app.route('/products/<int:product_id>', methods=['PUT'])
 def update_product(product_id):
-    """
-    Updates an existing product by its ID.
-    Expects JSON input with fields to update.
-    """
     product = Product.query.get(product_id)
     if product is None:
         return jsonify({"error": "Product not found"}), 404
@@ -188,9 +158,6 @@ def update_product(product_id):
 
 @app.route('/products/<int:product_id>', methods=['DELETE'])
 def delete_product(product_id):
-    """
-    Deletes a product by its ID.
-    """
     product = Product.query.get(product_id)
     if product is None:
         return jsonify({"error": "Product not found"}), 404
@@ -205,10 +172,5 @@ def delete_product(product_id):
 
 if __name__ == '__main__':
     print("--- Entering __main__ block ---")
-    # This block runs when the script is executed directly.
-    # It's generally not recommended to call db.create_all() here
-    # when using 'flask run' as the primary way to start the app.
-    # Instead, use the 'flask init-db' CLI command.
-    # The app.run() will still work if you run 'python app.py' directly.
     app.run(debug=True, port=5000)
     print("--- Exited app.run() ---")
