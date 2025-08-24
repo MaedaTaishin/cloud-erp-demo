@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  # The Flask backend service
+  backend:
+    build: ./backend
+    container_name: erp-backend
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - ./database:/app/../database
+    entrypoint: /bin/sh -c "flask init-db && flask run --host=0.0.0.0 --debug"
+
+  # The database service (now just a volume holder)
+  db:
+    image: alpine
+    container_name: erp-db
+    volumes:
+      - ./database:/data
+    command: sh -c "echo 'Database initialized'"
