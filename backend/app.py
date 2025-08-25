@@ -6,32 +6,28 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 import click
-from flask_cors import CORS # NEW: Import CORS
-
-print("--- Starting app.py execution ---")
+import csv
+from flask_cors import CORS
+import requests
+import json
 
 # --- Configuration ---
 basedir = os.path.abspath(os.path.dirname(__file__))
-print(f"Basedir: {basedir}")
 
 app = Flask(__name__)
-CORS(app) # NEW: Enable CORS for your Flask app. This allows requests from your frontend.
+CORS(app)
 
-# Configure the database
 db_dir = os.path.join(basedir, '../database')
 db_path = os.path.join(db_dir, 'erp_demo.db')
 
 os.makedirs(db_dir, exist_ok=True)
-print(f"Database directory ensured at: {db_dir}")
-print(f"Database path configured to: {db_path}")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
-print("SQLAlchemy DB object initialized.")
 
-# --- Database Model ---
+# --- Database Models ---
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
@@ -40,9 +36,6 @@ class Product(db.Model):
     quantity = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def __repr__(self):
-        return f'<Product {self.name}>'
 
     def to_dict(self):
         return {
@@ -55,19 +48,57 @@ class Product(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
-# --- CLI Command for Database Initialization ---
+class SalesRecord(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_name = db.Column(db.String(100), nullable=False)
+    sales_date = db.Column(db.DateTime, nullable=False)
+    quantity_sold = db.Column(db.Integer, nullable=False)
+    total_revenue = db.Column(db.Float, nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'product_name': self.product_name,
+            'sales_date': self.sales_date.isoformat(),
+            'quantity_sold': self.quantity_sold,
+            'total_revenue': self.total_revenue
+        }
+
+# --- CLI Command for Database Initialization and Data Import ---
 @app.cli.command('init-db')
 def init_db_command():
-    print("Attempting to create database tables via CLI command...")
+    click.echo("Initializing the database...")
     try:
         with app.app_context():
-            os.makedirs(os.path.dirname(db_path), exist_ok=True)
             db.create_all()
-        click.echo('Initialized the database.')
-        print("Database tables created successfully or already exist.")
+        click.echo('Database tables created.')
     except Exception as e:
         click.echo(f"Error initializing database: {e}")
-        print(f"Error initializing database: {e}")
+        raise
+
+@app.cli.command('import-sales')
+@click.argument('filepath')
+def import_sales_command(filepath):
+    click.echo(f"Importing sales data from {filepath}...")
+    try:
+        with open(filepath, mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            sales_records = []
+            for row in reader:
+                record = SalesRecord(
+                    product_name=row['product_name'],
+                    sales_date=datetime.strptime(row['sales_date'], '%Y-%m-%d'),
+                    quantity_sold=int(row['quantity_sold']),
+                    total_revenue=float(row['total_revenue'])
+                )
+                sales_records.append(record)
+        with app.app_context():
+            db.session.add_all(sales_records)
+            db.session.commit()
+        click.echo(f"Successfully imported {len(sales_records)} sales records.")
+    except Exception as e:
+        click.echo(f"Error importing sales data: {e}")
+        db.session.rollback()
 
 # --- API Endpoints ---
 @app.route('/')
@@ -79,7 +110,7 @@ def create_product():
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON"}), 400
-
+    
     name = data.get('name')
     price = data.get('price')
     quantity = data.get('quantity')
@@ -170,7 +201,66 @@ def delete_product(product_id):
         db.session.rollback()
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
+@app.route('/sales', methods=['GET'])
+def get_sales_data():
+    sales = SalesRecord.query.all()
+    return jsonify([record.to_dict() for record in sales])
+
+@app.route('/genai-analyze', methods=['POST'])
+def genai_analyze_data():
+    data = request.get_json()
+    if not data or 'query' not in data or 'sales_data' not in data:
+        return jsonify({"error": "Invalid request. Missing 'query' or 'sales_data'."}), 400
+    
+    user_query = data['query']
+    sales_data = data['sales_data']
+    
+    # --- IMPORTANT: Configure your API key here. ---
+    # NOTE: This is NOT a recommended practice for production.
+    # It is provided for local testing and demonstration purposes only.
+    api_key = "My_Key"
+    
+    # If the API key is not set, we'll fall back to our hardcoded logic
+    if not api_key:
+        response_text = "I'm sorry, the AI model API key is not configured. Please check your .env file."
+        return jsonify({"response": response_text}), 200
+
+    # --- Real Gemini API Call ---
+    
+    # Construct the full prompt for the Gemini model
+    prompt = f"You are a helpful and concise sales data analyst. Here is some sales data in JSON format: {json.dumps(sales_data)}. The user is asking the following question: '{user_query}'. Please answer the user's question based ONLY on the data provided, without any extra commentary."
+
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+
+    try:
+        api_response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+        api_response.raise_for_status()
+
+        model_response_json = api_response.json()
+        model_text = model_response_json['candidates'][0]['content']['parts'][0]['text']
+        
+        return jsonify({"response": model_text}), 200
+
+    except requests.exceptions.RequestException as e:
+        # Print the full error to the console for debugging, but don't expose it to the user
+        print(f"Error calling Gemini API: {e}")
+        return jsonify({"error": "Failed to get a response from the Gemini model. Please check the backend logs."}), 500
+    except (KeyError, IndexError) as e:
+        print(f"Unexpected response format from Gemini API: {e}")
+        return jsonify({"error": "The Gemini model returned an unexpected response format."}), 500
+
 if __name__ == '__main__':
-    print("--- Entering __main__ block ---")
     app.run(debug=True, port=5000)
-    print("--- Exited app.run() ---")
