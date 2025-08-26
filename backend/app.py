@@ -10,6 +10,10 @@ import csv
 from flask_cors import CORS
 import requests
 import json
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- Configuration ---
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -215,34 +219,38 @@ def genai_analyze_data():
     user_query = data['query']
     sales_data = data['sales_data']
     
-    # --- IMPORTANT: Configure your API key here. ---
-    # NOTE: This is NOT a recommended practice for production.
-    # It is provided for local testing and demonstration purposes only.
-    api_key = "My_Key"
-    
-    # If the API key is not set, we'll fall back to our hardcoded logic
-    if not api_key:
-        response_text = "I'm sorry, the AI model API key is not configured. Please check your .env file."
+    # Get your API key and model ID from the environment variables
+    api_key = os.getenv("HUGGINGFACE_API_KEY") 
+    model_id = os.getenv("HUGGINGFACE_MODEL_ID")
+
+    # Fallback to hardcoded logic if API keys are not set
+    if not api_key or not model_id:
+        response_text = "I'm sorry, the AI model API key or model ID is not configured. Please check your .env file."
         return jsonify({"response": response_text}), 200
 
-    # --- Real Gemini API Call ---
+    # --- Hugging Face API Call ---
+    # Construct the full prompt for the model
+    prompt_text = f"""
+    You are a helpful and concise sales data analyst. Here is some sales data in JSON format:
     
-    # Construct the full prompt for the Gemini model
-    prompt = f"You are a helpful and concise sales data analyst. Here is some sales data in JSON format: {json.dumps(sales_data)}. The user is asking the following question: '{user_query}'. Please answer the user's question based ONLY on the data provided, without any extra commentary."
-
+    {json.dumps(sales_data)}
+    
+    The user is asking the following question: '{user_query}'. Please answer the user's question based ONLY on the data provided, without any extra commentary.
+    """
+    
     headers = {
-        'Content-Type': 'application/json'
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
     }
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+    api_url = f"https://api-inference.huggingface.co/models/{model_id}"
 
     payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
+        "inputs": prompt_text,
+        "parameters": {
+            "max_new_tokens": 100,
+            "temperature": 0.1,
+            "return_full_text": False
+        }
     }
 
     try:
@@ -250,17 +258,16 @@ def genai_analyze_data():
         api_response.raise_for_status()
 
         model_response_json = api_response.json()
-        model_text = model_response_json['candidates'][0]['content']['parts'][0]['text']
+        model_text = model_response_json[0]['generated_text']
         
         return jsonify({"response": model_text}), 200
 
     except requests.exceptions.RequestException as e:
-        # Print the full error to the console for debugging, but don't expose it to the user
-        print(f"Error calling Gemini API: {e}")
-        return jsonify({"error": "Failed to get a response from the Gemini model. Please check the backend logs."}), 500
+        print(f"Error calling Hugging Face API: {e}")
+        return jsonify({"error": "Failed to get a response from the Hugging Face model. Please check the backend logs."}), 500
     except (KeyError, IndexError) as e:
-        print(f"Unexpected response format from Gemini API: {e}")
-        return jsonify({"error": "The Gemini model returned an unexpected response format."}), 500
+        print(f"Unexpected response format from Hugging Face API: {e}")
+        return jsonify({"error": "The Hugging Face model returned an unexpected response format."}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
